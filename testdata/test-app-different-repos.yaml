@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: test-different-repos-multi-source
+  namespace: argocd
+spec:
+  destination:
+    namespace: test
+    server: https://kubernetes.default.svc
+  project: default
+  sources:
+    - repoURL: https://github.com/argoproj/argocd-example-apps.git
+      targetRevision: HEAD
+      path: helm-guestbook
+      helm:
+        valueFiles:
+          - $configs/values.yaml
+    - repoURL: https://github.com/different-org/different-repo.git
+      targetRevision: HEAD
+      path: configs
+      ref: configs

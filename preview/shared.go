@@ -168,9 +168,16 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 	}
 
 	// Phase 1: Validate same-repository constraint for Git sources
-	// Helm charts are allowed to have different repos
+	// Helm charts (sources with Chart field set) are allowed to have different repos
 	var baseGitRepoURL string
+	var firstGitSourceIndex int = -1
+
 	for i, source := range sources {
+		// Validate that each source has a repoURL
+		if source.RepoURL == "" {
+			return nil, fmt.Errorf("source at index %d has empty repoURL", i)
+		}
+
 		// Skip Helm chart sources - they're allowed to be from different repos
 		if source.Chart != "" {
 			continue
@@ -179,11 +186,17 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 		// For Git sources, ensure they all use the same repo
 		if baseGitRepoURL == "" {
 			baseGitRepoURL = source.RepoURL
+			firstGitSourceIndex = i
 		} else if source.RepoURL != baseGitRepoURL {
-			return nil, fmt.Errorf("Phase 1 requires all Git repository sources to use the same repository. "+
-				"Source %d uses '%s' while first Git source uses '%s'", i, source.RepoURL, baseGitRepoURL)
+			return nil, fmt.Errorf("Phase 1 constraint: all Git repository sources must use the same repository. "+
+				"Source at index %d uses '%s' but source at index %d (first Git source) uses '%s'",
+				i, source.RepoURL, firstGitSourceIndex, baseGitRepoURL)
 		}
 	}
+
+	// Note: All-Helm applications (where baseGitRepoURL stays empty) are valid.
+	// They can use different Helm chart repositories, which is a common pattern
+	// for deploying applications from multiple Helm registries.
 
 	// Build reference sources map for cross-source references
 	refSources := buildRefSources(sources)
@@ -192,6 +205,13 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 	var allManifests []string
 	for i, source := range sources {
 		sourceCopy := source // Important: create a copy for the pointer
+
+		// Repository credentials are resolved per-source using the source's repoURL.
+		// This allows mixed scenarios:
+		// - Multiple Git sources from the same repository (Phase 1 constraint)
+		// - External Helm charts from different registries with their own credentials
+		// - Git sources with values + Helm charts with different authentication
+		// FindRepoUsername/FindRepoPassword is called for each source's repoURL independently.
 		response, err := repoService.GenerateManifest(context.Background(), &repoapiclient.ManifestRequest{
 			ApplicationSource:  &sourceCopy,
 			AppName:            app.Name,
@@ -219,6 +239,11 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 
 // buildRefSources creates a map of named source references for cross-source value file resolution
 // The map keys use the "$ref" format (e.g., "$values") to match ArgoCD's cross-source reference syntax
+//
+// Note: RefTarget intentionally does NOT include the Path field from ApplicationSource.
+// This is by design in ArgoCD v3's API. The Path is used during manifest generation, but
+// the RefTarget only needs to identify the repository, revision, and chart (if Helm).
+// The actual path resolution happens during the GenerateManifest call for each source.
 func buildRefSources(sources []argoappv1.ApplicationSource) map[string]*argoappv1.RefTarget {
 	refSources := make(map[string]*argoappv1.RefTarget)
 
