@@ -32,6 +32,30 @@ func shouldMatch(v string) bool {
 	return len(v) > 0
 }
 
+// getCacheDir returns the cache directory for repositories and helm charts.
+// Uses XDG_CACHE_HOME if set, otherwise defaults to ~/.cache on Linux/macOS.
+// Can be overridden with ARGOCD_OFFLINE_CLI_CACHE_DIR environment variable.
+func getCacheDir() string {
+	// Check for override via environment variable
+	if dir := os.Getenv("ARGOCD_OFFLINE_CLI_CACHE_DIR"); dir != "" {
+		return dir
+	}
+
+	// Use XDG_CACHE_HOME or default
+	cacheHome := os.Getenv("XDG_CACHE_HOME")
+	if cacheHome == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			// Fallback to temp dir if we can't get home dir
+			log.Warnf("Unable to determine home directory, using temp dir: %v", err)
+			return filepath.Join(os.TempDir(), "_argocd-offline-cli")
+		}
+		cacheHome = filepath.Join(homeDir, ".cache")
+	}
+
+	return filepath.Join(cacheHome, "argocd-offline-cli")
+}
+
 // generateAndOutputManifests generates manifests for Applications and outputs them
 func generateAndOutputManifests(apps []argoappv1.Application, appName string, resKind string, output string) {
 	max, err := resource.ParseQuantity("100G")
@@ -51,7 +75,7 @@ func generateAndOutputManifests(apps []argoappv1.Application, appName string, re
 		initConstants,
 		argo.NewResourceTracking(),
 		git.NoopCredsStore{},
-		filepath.Join(os.TempDir(), "_argocd-offline-cli"),
+		getCacheDir(),
 	)
 	if err := repoService.Init(); err != nil {
 		log.Fatal("failed to initialize the repo service: ", err)
