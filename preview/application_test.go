@@ -1,8 +1,6 @@
 package preview
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/argoproj/argo-cd/v3/reposerver/metrics"
@@ -227,7 +225,7 @@ func TestGenerateMultiSourceManifestsWithDifferentRepos(t *testing.T) {
 		initConstants,
 		argo.NewResourceTracking(),
 		git.NoopCredsStore{},
-		filepath.Join(os.TempDir(), "_argocd-offline-cli-test"),
+		getCacheDir(),
 	)
 	require.NoError(t, repoService.Init())
 
@@ -272,7 +270,7 @@ func TestGenerateMultiSourceManifestsWithEmptyRepoURL(t *testing.T) {
 		initConstants,
 		argo.NewResourceTracking(),
 		git.NoopCredsStore{},
-		filepath.Join(os.TempDir(), "_argocd-offline-cli-test"),
+		getCacheDir(),
 	)
 	require.NoError(t, repoService.Init())
 
