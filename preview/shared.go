@@ -93,7 +93,7 @@ func generateAndOutputManifests(apps []argoappv1.Application, appName string, re
 			var err error
 
 			if app.Spec.HasMultipleSources() {
-				// Multi-source path - Phase 1 requires same repository
+				// Multi-source path
 				manifests, err = generateMultiSourceManifests(repoService, app)
 				if err != nil {
 					log.Fatalf("Failed to generate manifests for multi-source app '%s': %v", app.Name, err)
@@ -183,7 +183,7 @@ func generateSingleSourceManifest(repoService *repository.Service, app argoappv1
 }
 
 // generateMultiSourceManifests handles manifest generation for multi-source applications
-// Phase 1 constraint: all Git repository sources must use the same repository URL
+// Constraint: all Git repository sources must use the same repository URL
 // Helm chart sources (with Chart field set) are allowed to use different repositories
 func generateMultiSourceManifests(repoService *repository.Service, app argoappv1.Application) ([]string, error) {
 	sources := app.Spec.GetSources()
@@ -191,7 +191,7 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 		return nil, fmt.Errorf("no sources found in multi-source application")
 	}
 
-	// Phase 1: Validate same-repository constraint for Git sources
+	// Validate same-repository constraint for Git sources
 	// Helm charts (sources with Chart field set) are allowed to have different repos
 	var baseGitRepoURL string
 	var firstGitSourceIndex int = -1
@@ -212,7 +212,7 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 			baseGitRepoURL = source.RepoURL
 			firstGitSourceIndex = i
 		} else if source.RepoURL != baseGitRepoURL {
-			return nil, fmt.Errorf("Phase 1 constraint: all Git repository sources must use the same repository. "+
+			return nil, fmt.Errorf("all Git repository sources must use the same repository. "+
 				"Source at index %d uses '%s' but source at index %d (first Git source) uses '%s'",
 				i, source.RepoURL, firstGitSourceIndex, baseGitRepoURL)
 		}
@@ -232,7 +232,7 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 
 		// Repository credentials are resolved per-source using the source's repoURL.
 		// This allows mixed scenarios:
-		// - Multiple Git sources from the same repository (Phase 1 constraint)
+		// - Multiple Git sources from the same repository
 		// - External Helm charts from different registries with their own credentials
 		// - Git sources with values + Helm charts with different authentication
 		// FindRepoUsername/FindRepoPassword is called for each source's repoURL independently.

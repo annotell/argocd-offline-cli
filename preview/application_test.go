@@ -195,7 +195,7 @@ func TestBuildRefSourcesWithHelmChart(t *testing.T) {
 
 // TestGenerateMultiSourceManifestsWithDifferentRepos verifies that the validation
 // correctly rejects multi-source applications where Git sources use different repositories.
-// This tests the Phase 1 constraint that all Git sources must use the same repository.
+// This tests the constraint that all Git sources must use the same repository.
 func TestGenerateMultiSourceManifestsWithDifferentRepos(t *testing.T) {
 	apps := loadApplications("../testdata/test-app-different-repos.yaml")
 	require.Len(t, apps, 1, "Expected 1 application")
@@ -235,7 +235,7 @@ func TestGenerateMultiSourceManifestsWithDifferentRepos(t *testing.T) {
 	manifests, err := generateMultiSourceManifests(repoService, app)
 	require.Error(t, err, "Should fail when Git sources use different repositories")
 	require.Nil(t, manifests, "Should not return manifests on validation error")
-	require.Contains(t, err.Error(), "Phase 1 constraint", "Error should mention Phase 1 constraint")
+	require.Contains(t, err.Error(), "all Git repository sources must use the same repository", "Error should mention repository constraint")
 	require.Contains(t, err.Error(), "index 0", "Error should mention first Git source index")
 	require.Contains(t, err.Error(), "index 1", "Error should mention second Git source index")
 }
