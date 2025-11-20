@@ -287,23 +287,15 @@ func generateSingleSourceManifest(repoService *repository.Service, app argoappv1
 }
 
 // generateMultiSourceManifests handles manifest generation for multi-source applications
-// Constraint: all Git repository sources must use the same repository URL
+// validateGitSourcesConstraint validates that all Git sources use the same repository URL
 // Helm chart sources (with Chart field set) are allowed to use different repositories
-func generateMultiSourceManifests(repoService *repository.Service, app argoappv1.Application) ([]string, error) {
-	sources := app.Spec.GetSources()
-	if len(sources) == 0 {
-		return nil, fmt.Errorf("no sources found in multi-source application")
-	}
-
-	// Validate same-repository constraint for Git sources
-	// Helm charts (sources with Chart field set) are allowed to have different repos
+func validateGitSourcesConstraint(sources []argoappv1.ApplicationSource) error {
 	var baseGitRepoURL string
 	firstGitSourceIndex := -1
 
 	for i, source := range sources {
-		// Validate that each source has a repoURL
 		if source.RepoURL == "" {
-			return nil, fmt.Errorf("source at index %d has empty repoURL", i)
+			return fmt.Errorf("source at index %d has empty repoURL", i)
 		}
 
 		// Skip Helm chart sources - they're allowed to be from different repos
@@ -316,76 +308,87 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 			baseGitRepoURL = source.RepoURL
 			firstGitSourceIndex = i
 		} else if source.RepoURL != baseGitRepoURL {
-			return nil, fmt.Errorf("all Git repository sources must use the same repository. "+
+			return fmt.Errorf("all Git repository sources must use the same repository. "+
 				"Source at index %d uses '%s' but source at index %d (first Git source) uses '%s'",
 				i, source.RepoURL, firstGitSourceIndex, baseGitRepoURL)
 		}
 	}
 
-	// Note: All-Helm applications (where baseGitRepoURL stays empty) are valid.
-	// They can use different Helm chart repositories, which is a common pattern
-	// for deploying applications from multiple Helm registries.
+	return nil
+}
 
-	// First pass: resolve all local revisions to HEAD
-	// We need to do this before building refSources so that cross-source references
-	// have the correct resolved revision
+// resolveLocalRevisions resolves targetRevision to HEAD for local repositories
+// Returns the resolved sources and their local paths
+func resolveLocalRevisions(sources []argoappv1.ApplicationSource, appName string) ([]argoappv1.ApplicationSource, []string) {
 	resolvedSources := make([]argoappv1.ApplicationSource, len(sources))
-	localPaths := make([]string, len(sources)) // Track local paths for each source
+	localPaths := make([]string, len(sources))
 
 	for i, source := range sources {
-		resolvedSources[i] = source // Start with original
+		resolvedSources[i] = source
 
 		isLocal, localPath, _ := isLocalRepository(source.RepoURL)
-		if isLocal && source.Chart == "" {
-			// Only resolve for Git sources, not Helm charts
-			log.Infof("Detected local repository for source %d in %s, using path: %s", i, app.Name, localPath)
-			localPaths[i] = localPath
+		if !isLocal || source.Chart != "" {
+			continue
+		}
 
-			// Resolve to HEAD for local repositories
-			resolvedRevision, err := resolveLocalRevision(localPath)
-			if err != nil {
-				// Intentionally use original value when resolution fails to allow
-				// graceful fallback for edge cases
-				log.Warnf("Failed to resolve local revision: %v, using original", err)
-			} else {
-				log.Debugf("Resolved targetRevision to HEAD: %s", resolvedRevision)
-				resolvedSources[i].TargetRevision = resolvedRevision
-			}
+		// Only resolve for Git sources, not Helm charts
+		log.Infof("Detected local repository for source %d in %s, using path: %s", i, appName, localPath)
+		localPaths[i] = localPath
+
+		resolvedRevision, err := resolveLocalRevision(localPath)
+		if err != nil {
+			// Intentionally use original value when resolution fails to allow graceful fallback
+			log.Warnf("Failed to resolve local revision: %v, using original", err)
+			continue
+		}
+
+		log.Debugf("Resolved targetRevision to HEAD: %s", resolvedRevision)
+		resolvedSources[i].TargetRevision = resolvedRevision
+	}
+
+	return resolvedSources, localPaths
+}
+
+// createRepoOverride creates a repository override for a source
+func createRepoOverride(sourceCopy argoappv1.ApplicationSource, localPath string, sourceIndex int, appName string) *argoappv1.Repository {
+	if localPath != "" {
+		// localPath is from git rev-parse --show-toplevel and is therefore trusted
+		return &argoappv1.Repository{
+			Repo: "file://" + filepath.ToSlash(localPath),
+			Type: "git",
 		}
 	}
 
-	// Build reference sources map for cross-source references
-	// This uses the resolved sources so that Ref fields point to correct revisions
+	// Repository credentials are resolved per-source using the source's repoURL
+	log.Debugf("Using remote repository for source %d in %s: %s", sourceIndex, appName, sourceCopy.RepoURL)
+	return &argoappv1.Repository{
+		Repo:     sourceCopy.RepoURL,
+		Username: FindRepoUsername(sourceCopy.RepoURL),
+		Password: FindRepoPassword(sourceCopy.RepoURL),
+	}
+}
+
+// Constraint: all Git repository sources must use the same repository URL
+// Helm chart sources (with Chart field set) are allowed to use different repositories
+func generateMultiSourceManifests(repoService *repository.Service, app argoappv1.Application) ([]string, error) {
+	sources := app.Spec.GetSources()
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("no sources found in multi-source application")
+	}
+
+	if err := validateGitSourcesConstraint(sources); err != nil {
+		return nil, err
+	}
+
+	// Resolve local revisions and build refSources with resolved values
+	resolvedSources, localPaths := resolveLocalRevisions(sources, app.Name)
 	refSources := buildRefSources(resolvedSources)
 
 	// Generate manifests for each source
 	var allManifests []string
 	for i := range sources {
 		sourceCopy := resolvedSources[i]
-		localPath := localPaths[i]
-
-		// Check if this source is a local repository
-		var repoOverride *argoappv1.Repository
-		if localPath != "" {
-			// localPath is from git rev-parse --show-toplevel and is therefore trusted
-			repoOverride = &argoappv1.Repository{
-				Repo: "file://" + filepath.ToSlash(localPath),
-				Type: "git",
-			}
-		} else {
-			// Repository credentials are resolved per-source using the source's repoURL.
-			// This allows mixed scenarios:
-			// - Multiple Git sources from the same repository
-			// - External Helm charts from different registries with their own credentials
-			// - Git sources with values + Helm charts with different authentication
-			// FindRepoUsername/FindRepoPassword is called for each source's repoURL independently.
-			log.Debugf("Using remote repository for source %d in %s: %s", i, app.Name, sourceCopy.RepoURL)
-			repoOverride = &argoappv1.Repository{
-				Repo:     sourceCopy.RepoURL,
-				Username: FindRepoUsername(sourceCopy.RepoURL),
-				Password: FindRepoPassword(sourceCopy.RepoURL),
-			}
-		}
+		repoOverride := createRepoOverride(sourceCopy, localPaths[i], i, app.Name)
 
 		response, err := repoService.GenerateManifest(context.Background(), &repoapiclient.ManifestRequest{
 			ApplicationSource:  &sourceCopy,
