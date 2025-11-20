@@ -72,6 +72,26 @@ func TestNormalizeGitURL(t *testing.T) {
 			input:    "https://git.mycompany.com/team/project.git",
 			expected: "git.mycompany.com/team/project",
 		},
+		{
+			name:     "HTTPS URL with port number",
+			input:    "https://git.mycompany.com:8443/team/project.git",
+			expected: "git.mycompany.com:8443/team/project",
+		},
+		{
+			name:     "Empty string returns empty",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "URL with trailing slash",
+			input:    "https://github.com/owner/repo/",
+			expected: "github.com/owner/repo/",
+		},
+		{
+			name:     "SSH URL with trailing slash",
+			input:    "git@github.com:owner/repo/",
+			expected: "github.com/owner/repo/",
+		},
 	}
 
 	for _, tt := range tests {

@@ -34,8 +34,8 @@ func normalizeGitURL(url string) string {
 	// Convert SSH to HTTPS format for comparison
 	if strings.HasPrefix(url, "git@") {
 		// git@github.com:owner/repo.git -> github.com/owner/repo
-		url = strings.Replace(url, ":", "/", 1)
 		url = strings.TrimPrefix(url, "git@")
+		url = strings.Replace(url, ":", "/", 1)
 	}
 
 	// Remove protocol
@@ -50,9 +50,11 @@ func normalizeGitURL(url string) string {
 
 // isLocalRepository checks if the given repoURL matches the current git repository
 // Returns: (isLocal bool, localPath string, error)
-// - isLocal: true if the repoURL matches the current repository
-// - localPath: the root directory of the current repository (if matched)
-// - error: any error encountered (nil if not in a git repo - this is not an error)
+//
+// Return value combinations:
+// - (true, "/path/to/repo", nil): repoURL matches current repo, use local path
+// - (false, "", nil): repoURL does not match, or not in a git repo, or no origin configured
+// - (false, "", error): matched but failed to get repo root (unexpected error)
 func isLocalRepository(repoURL string) (bool, string, error) {
 	// Get current repository's remote URL
 	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
@@ -204,12 +206,14 @@ func generateSingleSourceManifest(repoService *repository.Service, app argoappv1
 	isLocal, localPath, _ := isLocalRepository(app.Spec.Source.RepoURL)
 	if isLocal {
 		log.Infof("Detected local repository for %s, using path: %s", app.Name, localPath)
+		// localPath is from git rev-parse --show-toplevel and is therefore trusted
 		repoOverride = &argoappv1.Repository{
-			Repo: "file://" + localPath,
+			Repo: "file://" + filepath.ToSlash(localPath),
 			Type: "git",
 		}
 	} else {
 		// Use existing credential resolution
+		log.Debugf("Using remote repository for %s: %s", app.Name, app.Spec.Source.RepoURL)
 		repoOverride = &argoappv1.Repository{
 			Repo:     app.Spec.Source.RepoURL,
 			Username: FindRepoUsername(app.Spec.Source.RepoURL),
@@ -287,8 +291,9 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 		if isLocal && source.Chart == "" {
 			// Only use local path for Git sources, not Helm charts
 			log.Infof("Detected local repository for source %d in %s, using path: %s", i, app.Name, localPath)
+			// localPath is from git rev-parse --show-toplevel and is therefore trusted
 			repoOverride = &argoappv1.Repository{
-				Repo: "file://" + localPath,
+				Repo: "file://" + filepath.ToSlash(localPath),
 				Type: "git",
 			}
 		} else {
@@ -298,6 +303,7 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 			// - External Helm charts from different registries with their own credentials
 			// - Git sources with values + Helm charts with different authentication
 			// FindRepoUsername/FindRepoPassword is called for each source's repoURL independently.
+			log.Debugf("Using remote repository for source %d in %s: %s", i, app.Name, source.RepoURL)
 			repoOverride = &argoappv1.Repository{
 				Repo:     source.RepoURL,
 				Username: FindRepoUsername(source.RepoURL),
