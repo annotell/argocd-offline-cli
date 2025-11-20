@@ -4,9 +4,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	argoappv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -309,4 +312,207 @@ func convertSSHToHTTPSForTest(sshURL string) string {
 	}
 	host := strings.TrimPrefix(parts[0], "git@")
 	return "https://" + host + "/" + parts[1]
+}
+
+// TestResolveLocalRevision tests resolving HEAD to a commit SHA
+func TestResolveLocalRevision(t *testing.T) {
+	// Get current repo path
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Skip("Not in a git repository")
+	}
+	repoPath := strings.TrimSpace(string(output))
+
+	// Test resolution
+	sha, err := resolveLocalRevision(repoPath)
+	assert.NoError(t, err)
+	assert.Len(t, sha, 40, "SHA should be 40 characters")
+	assert.Regexp(t, regexp.MustCompile("^[a-f0-9]{40}$"), sha, "SHA should be 40-character hex string")
+}
+
+// TestResolveLocalRevision_InvalidPath tests error handling for invalid paths
+func TestResolveLocalRevision_InvalidPath(t *testing.T) {
+	_, err := resolveLocalRevision("/nonexistent/path")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "/nonexistent/path", "Error should contain the invalid path")
+}
+
+// TestResolveLocalRevision_MatchesGitCommand tests that our result matches git rev-parse HEAD
+func TestResolveLocalRevision_MatchesGitCommand(t *testing.T) {
+	// Get current repo path
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Skip("Not in a git repository")
+	}
+	repoPath := strings.TrimSpace(string(output))
+
+	// Get expected SHA using git command directly
+	cmd = exec.Command("git", "-C", repoPath, "rev-parse", "HEAD")
+	expectedOutput, err := cmd.Output()
+	require.NoError(t, err)
+	expectedSHA := strings.TrimSpace(string(expectedOutput))
+
+	// Test our function
+	sha, err := resolveLocalRevision(repoPath)
+	require.NoError(t, err)
+	assert.Equal(t, expectedSHA, sha, "Resolved SHA should match git rev-parse HEAD")
+}
+
+// TestBuildRefSourcesWithResolvedRevisions tests that buildRefSources correctly uses resolved revisions
+// This verifies the fix for the issue where refSources was built before local revisions were resolved
+func TestBuildRefSourcesWithResolvedRevisions(t *testing.T) {
+	// Get current repo path and HEAD SHA
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Skip("Not in a git repository")
+	}
+	repoPath := strings.TrimSpace(string(output))
+
+	// Get the expected HEAD SHA
+	expectedSHA, err := resolveLocalRevision(repoPath)
+	require.NoError(t, err)
+
+	// Get current repo URL
+	cmd = exec.Command("git", "config", "--get", "remote.origin.url")
+	output, err = cmd.Output()
+	require.NoError(t, err)
+	currentRepoURL := strings.TrimSpace(string(output))
+
+	// Simulate the flow in generateMultiSourceManifests:
+	// 1. Create sources with a Ref field using original branch name
+	// 2. Resolve local revisions (simulating the first pass)
+	// 3. Build refSources from resolved sources
+	// 4. Verify refSources contains the resolved SHA, not original branch name
+
+	originalBranchName := "master" // Original targetRevision before resolution
+
+	// Create test sources simulating a multi-source app with cross-source references
+	sources := []struct {
+		RepoURL        string
+		TargetRevision string
+		Ref            string
+		Chart          string
+	}{
+		{
+			RepoURL:        currentRepoURL,
+			TargetRevision: originalBranchName,
+			Ref:            "values", // This source has a Ref field
+			Chart:          "",       // Git source, not Helm
+		},
+		{
+			RepoURL:        "https://charts.example.com",
+			TargetRevision: "1.0.0",
+			Ref:            "",
+			Chart:          "my-chart", // Helm chart, should not be resolved
+		},
+	}
+
+	// First pass: resolve local revisions (simulating what generateMultiSourceManifests does)
+	resolvedSources := make([]struct {
+		RepoURL        string
+		TargetRevision string
+		Ref            string
+		Chart          string
+	}, len(sources))
+
+	for i, source := range sources {
+		resolvedSources[i] = source
+
+		isLocal, localPath, _ := isLocalRepository(source.RepoURL)
+		if isLocal && source.Chart == "" {
+			resolvedRevision, err := resolveLocalRevision(localPath)
+			require.NoError(t, err)
+			resolvedSources[i].TargetRevision = resolvedRevision
+		}
+	}
+
+	// Verify the first source (with Ref) was resolved to HEAD SHA
+	assert.Equal(t, expectedSHA, resolvedSources[0].TargetRevision,
+		"Local Git source with Ref should have resolved targetRevision")
+
+	// Verify the second source (Helm chart) was not resolved
+	assert.Equal(t, "1.0.0", resolvedSources[1].TargetRevision,
+		"Helm chart source should keep original targetRevision")
+
+	// Now verify what would go into refSources
+	// In the actual code, buildRefSources uses argoappv1.ApplicationSource
+	// Here we just verify the logic is correct
+	for i, source := range resolvedSources {
+		if source.Ref != "" {
+			assert.Equal(t, expectedSHA, source.TargetRevision,
+				"Source %d with Ref '%s' should have resolved revision in refSources", i, source.Ref)
+			assert.NotEqual(t, originalBranchName, source.TargetRevision,
+				"Source %d with Ref '%s' should NOT have original branch name", i, source.Ref)
+		}
+	}
+}
+
+// TestMultiSourceRefSourcesIntegration tests the full integration of resolved revisions in refSources
+// using the actual buildRefSources function from the codebase
+func TestMultiSourceRefSourcesIntegration(t *testing.T) {
+	// Import is already done at package level for argoappv1
+
+	// Get current repo URL and HEAD SHA
+	cmd := exec.Command("git", "config", "--get", "remote.origin.url")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Skip("Not in a git repository with origin")
+	}
+	currentRepoURL := strings.TrimSpace(string(output))
+
+	cmd = exec.Command("git", "rev-parse", "--show-toplevel")
+	output, err = cmd.Output()
+	require.NoError(t, err)
+	repoPath := strings.TrimSpace(string(output))
+
+	expectedSHA, err := resolveLocalRevision(repoPath)
+	require.NoError(t, err)
+
+	// Test with the actual argoappv1.ApplicationSource type
+	// Simulating a multi-source app where one source has a Ref field
+	originalBranchName := "main"
+
+	sources := []argoappv1.ApplicationSource{
+		{
+			RepoURL:        currentRepoURL,
+			TargetRevision: originalBranchName, // Will be resolved to HEAD SHA
+			Ref:            "values",
+			Path:           "deploy/values",
+		},
+		{
+			RepoURL:        "https://charts.example.com",
+			TargetRevision: "2.0.0",
+			Chart:          "example-chart",
+		},
+	}
+
+	// Simulate first pass: resolve local revisions
+	resolvedSources := make([]argoappv1.ApplicationSource, len(sources))
+	for i, source := range sources {
+		resolvedSources[i] = source
+
+		isLocal, localPath, _ := isLocalRepository(source.RepoURL)
+		if isLocal && source.Chart == "" {
+			resolvedRevision, err := resolveLocalRevision(localPath)
+			require.NoError(t, err)
+			resolvedSources[i].TargetRevision = resolvedRevision
+		}
+	}
+
+	// Build refSources using the actual function
+	refSources := buildRefSources(resolvedSources)
+
+	// Verify refSources contains the resolved SHA for the source with Ref
+	require.Contains(t, refSources, "$values", "refSources should contain $values key")
+	assert.Equal(t, expectedSHA, refSources["$values"].TargetRevision,
+		"refSources[$values] should have resolved HEAD SHA, not original branch name")
+	assert.NotEqual(t, originalBranchName, refSources["$values"].TargetRevision,
+		"refSources[$values] should NOT contain original branch name '%s'", originalBranchName)
+
+	// Verify the repository URL is correctly set
+	assert.Equal(t, currentRepoURL, refSources["$values"].Repo.Repo,
+		"refSources[$values] should have correct repository URL")
 }

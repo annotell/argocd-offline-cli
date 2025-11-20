@@ -62,8 +62,8 @@ func PreviewApplication(filename string, appName string, output string) {
 			for _, app := range apps {
 				if app.Name == appName {
 					found = true
-					app.TypeMeta.APIVersion = applicationAPIVersion
-					app.TypeMeta.Kind = applicationKind
+					app.APIVersion = applicationAPIVersion
+					app.Kind = applicationKind
 					err := argocmd.PrintResource(app, output)
 					if err != nil {
 						log.Fatal(err)

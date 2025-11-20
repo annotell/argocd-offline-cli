@@ -1,0 +1,36 @@
+version: "2"
+linters:
+  # Default set of linters.
+  # The value can be: `standard`, `all`, `none`, or `fast`.
+  # Default: standard
+  default: standard
+  enable:
+   - cyclop
+   - gosec
+   - nestif
+   - gocyclo
+   - goconst
+   - gocritic
+   - unused
+   - intrange
+  exclusions:
+    rules:
+      - linters:
+        - gocyclo
+        - unparam
+        - nestif
+        - cyclop
+        path: _test\.go
+      
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+    - golines
+  settings:
+    golines:
+      # Target maximum line length.
+      # Default: 100
+      max-len: 120
