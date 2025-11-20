@@ -11,9 +11,8 @@ import (
 	cmdutil "github.com/argoproj/argo-cd/v3/cmd/util"
 	argoappv1 "github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/pkg/errors"
-	"github.com/spf13/cobra"
-
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 )
 
 var logger *log.Logger
@@ -73,7 +72,13 @@ func generateApplications(filename string) []argoappv1.Application {
 	}
 	appSet := appSets[0]
 	appSetGenerators := getAppSetGenerators()
-	apps, _, err := appsettemplate.GenerateApplications(log.NewEntry(logger), *appSet, appSetGenerators, &appsetutils.Render{}, nil)
+	apps, _, err := appsettemplate.GenerateApplications(
+		log.NewEntry(logger),
+		*appSet,
+		appSetGenerators,
+		&appsetutils.Render{},
+		nil,
+	)
 	if err != nil {
 		log.Fatal("failed to generate Application(s): ", err)
 	}

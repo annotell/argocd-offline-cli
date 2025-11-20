@@ -258,7 +258,6 @@ func generateSingleSourceManifest(repoService *repository.Service, app argoappv1
 		Repo:              repoOverride,
 		ProjectName:       "applications",
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate manifests: %w", err)
 	}
@@ -278,7 +277,7 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 	// Validate same-repository constraint for Git sources
 	// Helm charts (sources with Chart field set) are allowed to have different repos
 	var baseGitRepoURL string
-	var firstGitSourceIndex = -1
+	firstGitSourceIndex := -1
 
 	for i, source := range sources {
 		// Validate that each source has a repoURL
@@ -377,7 +376,6 @@ func generateMultiSourceManifests(repoService *repository.Service, app argoappv1
 			Repo:               repoOverride,
 			ProjectName:        "applications",
 		})
-
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate manifests for source %d: %w", i, err)
 		}

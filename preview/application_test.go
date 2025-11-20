@@ -163,7 +163,12 @@ func TestGenerateMultiSourceManifestsWithDifferentRepos(t *testing.T) {
 	manifests, err := generateMultiSourceManifests(repoService, app)
 	require.Error(t, err, "Should fail when Git sources use different repositories")
 	require.Nil(t, manifests, "Should not return manifests on validation error")
-	require.Contains(t, err.Error(), "all Git repository sources must use the same repository", "Error should mention repository constraint")
+	require.Contains(
+		t,
+		err.Error(),
+		"all Git repository sources must use the same repository",
+		"Error should mention repository constraint",
+	)
 	require.Contains(t, err.Error(), "index 0", "Error should mention first Git source index")
 	require.Contains(t, err.Error(), "index 1", "Error should mention second Git source index")
 }
