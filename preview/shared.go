@@ -207,7 +207,9 @@ func printResources(resources map[string][]unstructured.Unstructured, output str
 		printResourceNames(kinds, resources)
 	case "json", "yaml":
 		for _, kind := range kinds {
-			argocmd.PrintResourceList(resources[kind], output, false)
+			if err := argocmd.PrintResourceList(resources[kind], output, false); err != nil {
+				log.Fatal(err)
+			}
 		}
 	default:
 		errors.CheckError(fmt.Errorf("unknown output format: %s", output))
@@ -319,7 +321,10 @@ func validateGitSourcesConstraint(sources []argoappv1.ApplicationSource) error {
 
 // resolveLocalRevisions resolves targetRevision to HEAD for local repositories
 // Returns the resolved sources and their local paths
-func resolveLocalRevisions(sources []argoappv1.ApplicationSource, appName string) ([]argoappv1.ApplicationSource, []string) {
+func resolveLocalRevisions(
+	sources []argoappv1.ApplicationSource,
+	appName string,
+) ([]argoappv1.ApplicationSource, []string) {
 	resolvedSources := make([]argoappv1.ApplicationSource, len(sources))
 	localPaths := make([]string, len(sources))
 
@@ -350,7 +355,12 @@ func resolveLocalRevisions(sources []argoappv1.ApplicationSource, appName string
 }
 
 // createRepoOverride creates a repository override for a source
-func createRepoOverride(sourceCopy argoappv1.ApplicationSource, localPath string, sourceIndex int, appName string) *argoappv1.Repository {
+func createRepoOverride(
+	sourceCopy argoappv1.ApplicationSource,
+	localPath string,
+	sourceIndex int,
+	appName string,
+) *argoappv1.Repository {
 	if localPath != "" {
 		// localPath is from git rev-parse --show-toplevel and is therefore trusted
 		return &argoappv1.Repository{

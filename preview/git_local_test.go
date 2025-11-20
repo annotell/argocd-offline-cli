@@ -252,7 +252,11 @@ func TestIsLocalRepositoryOutsideGitRepo(t *testing.T) {
 	// Create a temporary directory that is not a git repo
 	tmpDir, err := os.MkdirTemp("", "not-a-git-repo")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Save current directory
 	originalDir, err := os.Getwd()
@@ -261,7 +265,11 @@ func TestIsLocalRepositoryOutsideGitRepo(t *testing.T) {
 	// Change to the non-git directory
 	err = os.Chdir(tmpDir)
 	require.NoError(t, err)
-	defer os.Chdir(originalDir)
+	defer func() {
+		if err := os.Chdir(originalDir); err != nil {
+			t.Logf("Failed to restore working directory: %v", err)
+		}
+	}()
 
 	// Test that isLocalRepository returns false when not in a git repo
 	isLocal, path, err := isLocalRepository("git@github.com:any/repo.git")
@@ -291,7 +299,11 @@ func TestIsLocalRepositoryWithSubdirectory(t *testing.T) {
 
 	err = os.Chdir(subDir)
 	require.NoError(t, err)
-	defer os.Chdir(originalDir)
+	defer func() {
+		if err := os.Chdir(originalDir); err != nil {
+			t.Logf("Failed to restore working directory: %v", err)
+		}
+	}()
 
 	// Test from subdirectory
 	isLocal, path, err := isLocalRepository(currentRepoURL)
@@ -349,6 +361,7 @@ func TestResolveLocalRevision_MatchesGitCommand(t *testing.T) {
 	repoPath := strings.TrimSpace(string(output))
 
 	// Get expected SHA using git command directly
+	// #nosec G204 - repoPath is from git rev-parse output in test context
 	cmd = exec.Command("git", "-C", repoPath, "rev-parse", "HEAD")
 	expectedOutput, err := cmd.Output()
 	require.NoError(t, err)

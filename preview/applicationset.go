@@ -15,6 +15,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Output format constants
+const (
+	outputFormatName = "name"
+	outputFormatJSON = "json"
+	outputFormatYAML = "yaml"
+)
+
 var logger *log.Logger
 
 func init() {
@@ -23,7 +30,9 @@ func init() {
 
 func initConfig() {
 	// set warn log level to avoid standard argocd info logging
-	os.Setenv("ARGOCD_LOG_LEVEL", "WARN")
+	if err := os.Setenv("ARGOCD_LOG_LEVEL", "WARN"); err != nil {
+		log.Warnf("Failed to set ARGOCD_LOG_LEVEL: %v", err)
+	}
 	cmdutil.LogLevel = "WARN"
 	logger = log.StandardLogger()
 	logger.SetLevel(log.WarnLevel)
@@ -32,28 +41,43 @@ func initConfig() {
 func PreviewApplications(filename string, appName string, output string) {
 	apps := generateApplications(filename)
 	switch output {
-	case "name":
-		fmt.Println("NAME")
-		for _, app := range apps {
-			if !shouldMatch(appName) || appName == app.Name {
-				fmt.Printf("application/%s\n", app.Name)
-			}
-		}
-	case "json", "yaml":
-		if shouldMatch(appName) {
-			for _, app := range apps {
-				if appName == app.Name {
-					app.APIVersion = applicationAPIVersion
-					app.Kind = applicationKind
-					argocmd.PrintResource(app, output)
-					break
-				}
-			}
-		} else {
-			argocmd.PrintResourceList(apps, output, false)
-		}
+	case outputFormatName:
+		printAppSetNames(apps, appName)
+	case outputFormatJSON, outputFormatYAML:
+		printAppSetFormatted(apps, appName, output)
 	default:
 		errors.CheckError(fmt.Errorf("unknown output format: %s", output))
+	}
+}
+
+// printAppSetNames prints application names from ApplicationSet to stdout
+func printAppSetNames(apps []argoappv1.Application, appName string) {
+	fmt.Println("NAME")
+	for _, app := range apps {
+		if !shouldMatch(appName) || appName == app.Name {
+			fmt.Printf("application/%s\n", app.Name)
+		}
+	}
+}
+
+// printAppSetFormatted prints applications from ApplicationSet in JSON or YAML format
+func printAppSetFormatted(apps []argoappv1.Application, appName string, output string) {
+	if !shouldMatch(appName) {
+		if err := argocmd.PrintResourceList(apps, output, false); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	for _, app := range apps {
+		if appName == app.Name {
+			app.APIVersion = applicationAPIVersion
+			app.Kind = applicationKind
+			if err := argocmd.PrintResource(app, output); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
 	}
 }
 

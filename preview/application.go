@@ -49,41 +49,46 @@ func PreviewApplication(filename string, appName string, output string) {
 
 	switch output {
 	case "name":
-		fmt.Println("NAME")
-		for _, app := range apps {
-			if !shouldMatch(appName) || appName == app.Name {
-				fmt.Printf("application/%s\n", app.Name)
-			}
-		}
+		printApplicationNames(apps, appName)
 	case "json", "yaml":
-		if shouldMatch(appName) {
-			// Filter to specific app
-			found := false
-			for _, app := range apps {
-				if app.Name == appName {
-					found = true
-					app.APIVersion = applicationAPIVersion
-					app.Kind = applicationKind
-					err := argocmd.PrintResource(app, output)
-					if err != nil {
-						log.Fatal(err)
-					}
-					return
-				}
-			}
-			if !found {
-				log.Fatalf("Application '%s' not found in %s", appName, filename)
-			}
-		} else {
-			// Print all applications
-			err := argocmd.PrintResourceList(apps, output, false)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
+		printApplicationsFormatted(apps, appName, output, filename)
 	default:
 		log.Fatalf("Unknown output format: %s", output)
 	}
+}
+
+// printApplicationNames prints application names to stdout
+func printApplicationNames(apps []argoappv1.Application, appName string) {
+	fmt.Println("NAME")
+	for _, app := range apps {
+		if !shouldMatch(appName) || appName == app.Name {
+			fmt.Printf("application/%s\n", app.Name)
+		}
+	}
+}
+
+// printApplicationsFormatted prints applications in JSON or YAML format
+func printApplicationsFormatted(apps []argoappv1.Application, appName string, output string, filename string) {
+	if !shouldMatch(appName) {
+		// Print all applications
+		if err := argocmd.PrintResourceList(apps, output, false); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	// Filter to specific app
+	for _, app := range apps {
+		if app.Name == appName {
+			app.APIVersion = applicationAPIVersion
+			app.Kind = applicationKind
+			if err := argocmd.PrintResource(app, output); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
+	}
+	log.Fatalf("Application '%s' not found in %s", appName, filename)
 }
 
 // PreviewApplicationResources generates and outputs Kubernetes manifests
