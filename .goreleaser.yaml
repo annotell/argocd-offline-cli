@@ -14,3 +14,8 @@ builds:
       - goos: linux
         goarch: '386'
     main: ./cmd/
+    ldflags:
+      - -s -w
+      - -X github.com/touchardv/argocd-offline-cli/cmd/commands.version={{.Version}}
+      - -X github.com/touchardv/argocd-offline-cli/cmd/commands.commit={{.Commit}}
+      - -X github.com/touchardv/argocd-offline-cli/cmd/commands.date={{.Date}}
