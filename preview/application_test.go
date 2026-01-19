@@ -5,7 +5,6 @@ import (
 
 	"github.com/argoproj/argo-cd/v3/reposerver/metrics"
 	"github.com/argoproj/argo-cd/v3/reposerver/repository"
-	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/git"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -153,7 +152,6 @@ func TestGenerateMultiSourceManifestsWithDifferentRepos(t *testing.T) {
 		metrics.NewMetricsServer(),
 		NewNoopCache(),
 		initConstants,
-		argo.NewResourceTracking(),
 		git.NoopCredsStore{},
 		getCacheDir(),
 	)
@@ -203,7 +201,6 @@ func TestGenerateMultiSourceManifestsWithEmptyRepoURL(t *testing.T) {
 		metrics.NewMetricsServer(),
 		NewNoopCache(),
 		initConstants,
-		argo.NewResourceTracking(),
 		git.NoopCredsStore{},
 		getCacheDir(),
 	)

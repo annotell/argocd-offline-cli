@@ -15,7 +15,6 @@ import (
 	repoapiclient "github.com/argoproj/argo-cd/v3/reposerver/apiclient"
 	"github.com/argoproj/argo-cd/v3/reposerver/metrics"
 	"github.com/argoproj/argo-cd/v3/reposerver/repository"
-	"github.com/argoproj/argo-cd/v3/util/argo"
 	"github.com/argoproj/argo-cd/v3/util/git"
 	"github.com/argoproj/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -123,7 +122,6 @@ func generateAndOutputManifests(apps []argoappv1.Application, appName string, re
 		metrics.NewMetricsServer(),
 		NewNoopCache(),
 		initConstants,
-		argo.NewResourceTracking(),
 		git.NoopCredsStore{},
 		getCacheDir(),
 	)
